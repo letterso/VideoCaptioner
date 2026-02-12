@@ -101,7 +101,10 @@ class VideoInfoCard(CardWidget):
         self.info_layout.setSpacing(10)
 
         self.video_title = BodyLabel(self.tr("请拖入音频或视频文件"), self)
-        self.video_title.setFont(QFont("Microsoft YaHei", 14, QFont.Bold))
+        title_font = QApplication.font()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        self.video_title.setFont(title_font)
         self.video_title.setWordWrap(True)
         self.info_layout.addWidget(self.video_title, alignment=Qt.AlignTop)  # type: ignore
 

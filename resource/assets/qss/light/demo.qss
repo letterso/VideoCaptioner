@@ -1,5 +1,5 @@
 Widget > QLabel {
-    font: 24px 'Segoe UI', 'Microsoft YaHei';
+    font: 24px 'Segoe UI', 'LXGW WenKai', 'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'Microsoft YaHei';
 }
 
 Widget {

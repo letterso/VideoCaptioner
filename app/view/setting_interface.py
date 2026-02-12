@@ -1,8 +1,9 @@
 import webbrowser
+import types
 
 from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QFileDialog, QLabel, QWidget
+from PyQt5.QtWidgets import QApplication, QFileDialog, QLabel, QWidget
 from qfluentwidgets import (
     ComboBoxSettingCard,
     CustomColorSettingCard,
@@ -438,6 +439,35 @@ class SettingInterface(ScrollArea):
             parent=self.transcribeGroup,
         )
         self.transcribeModelCard.comboBox.setMinimumWidth(150)
+        # Ensure dropdown items use a CJK-capable font.
+        # qfluentwidgets' ComboBox popup uses MenuActionListWidget, which hard-codes fonts like
+        # "Segoe UI"/"Microsoft YaHei"/"PingFang SC" in its own stylesheet (can cause garbled text
+        # on Linux). We override the menu view stylesheet at menu-creation time.
+        ui_font = QApplication.font()
+        combo = self.transcribeModelCard.comboBox
+        combo.setFont(ui_font)
+
+        font_fallback = (
+            '"LXGW WenKai", "Noto Sans CJK SC", "Noto Sans SC", "WenQuanYi Micro Hei", '
+            '"Source Han Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI"'
+        )
+
+        create_menu = getattr(combo, "_createComboMenu", None)
+        if callable(create_menu):
+            def _patched_create_menu(self_combo):
+                menu = create_menu()
+                try:
+                    # ComboBoxMenu sets view.objectName('comboListWidget')
+                    menu.view.setFont(ui_font)
+                    menu.setFont(ui_font)
+                    menu.view.setStyleSheet(
+                        f'MenuActionListWidget#comboListWidget{{font: 14px {font_fallback};}}'
+                    )
+                except Exception:
+                    pass
+                return menu
+
+            combo._createComboMenu = types.MethodType(_patched_create_menu, combo)  # type: ignore
 
         # API Base URL
         self.whisperApiBaseCard = LineEditSettingCard(
@@ -584,7 +614,7 @@ class SettingInterface(ScrollArea):
                 background-color: transparent;
             }
             QLabel#settingLabel {
-                font: 33px 'Microsoft YaHei';
+                font: 33px 'LXGW WenKai', 'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', 'Microsoft YaHei';
                 background-color: transparent;
                 color: white;
             }

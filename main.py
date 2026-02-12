@@ -30,11 +30,12 @@ for file in os.listdir():
 
 # Now import the modules that depend on the setup above
 from PyQt5.QtCore import Qt, QTranslator  # noqa: E402
+from PyQt5.QtGui import QFont, QFontDatabase  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 from qfluentwidgets import FluentTranslator  # noqa: E402
 
 from app.common.config import cfg  # noqa: E402
-from app.config import RESOURCE_PATH  # noqa: E402
+from app.config import FONTS_PATH, RESOURCE_PATH  # noqa: E402
 from app.core.utils.cache import disable_cache, enable_cache  # noqa: E402
 from app.core.utils.logger import setup_logger  # noqa: E402
 from app.view.main_window import MainWindow  # noqa: E402
@@ -80,7 +81,53 @@ app.installTranslator(translator)
 app.installTranslator(myTranslator)
 
 
+def _setup_linux_font_fallback(application: QApplication) -> None:
+    """Ensure a readable CJK-capable UI font on Linux.
+
+    Some views/stylesheets hard-code Windows-only families (e.g. Microsoft YaHei).
+    When those fonts are missing on Linux, Qt may fall back to an unsuitable font
+    and the UI can look like "乱码". We load a bundled font and set it as the
+    application default font.
+    """
+
+    if platform.system() != "Linux":
+        return
+
+    # Load bundled font first (resource/fonts/LXGWWenKai-Regular.ttf)
+    bundled_families: list[str] = []
+    bundled_font_path = FONTS_PATH / "LXGWWenKai-Regular.ttf"
+    if bundled_font_path.exists():
+        font_id = QFontDatabase.addApplicationFont(str(bundled_font_path))
+        if font_id != -1:
+            bundled_families = list(QFontDatabase.applicationFontFamilies(font_id))
+
+    db = QFontDatabase()
+    available = set(db.families())
+
+    # Prefer bundled font, then common Linux CJK fonts.
+    candidates = [
+        *bundled_families,
+        "Noto Sans CJK SC",
+        "Noto Sans SC",
+        "WenQuanYi Micro Hei",
+        "Source Han Sans SC",
+        "Source Han Serif SC",
+    ]
+
+    chosen = next((f for f in candidates if f and f in available), None)
+    if not chosen:
+        return
+
+    base_font = application.font()
+    new_font = QFont(chosen)
+    if base_font.pointSize() > 0:
+        new_font.setPointSize(base_font.pointSize())
+    new_font.setStyleStrategy(QFont.PreferAntialias)
+    application.setFont(new_font)
+
+
 def main():
+    _setup_linux_font_fallback(app)
     w = MainWindow()
     w.show()
     sys.exit(app.exec_())
