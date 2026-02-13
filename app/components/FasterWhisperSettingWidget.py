@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -149,6 +150,79 @@ def check_faster_whisper_exists() -> tuple[bool, list[str]]:
     return bool(installed_versions), installed_versions
 
 
+def _find_7z_executable() -> str | None:
+    """查找可用的 7z 可执行文件"""
+    for name in ["7z", "7z.exe", "7za", "7za.exe"]:
+        cmd_path = shutil.which(name)
+        if cmd_path:
+            return cmd_path
+
+    for candidate in [Path(BIN_PATH) / "7z.exe", Path(BIN_PATH) / "7za.exe"]:
+        if candidate.exists():
+            return str(candidate)
+
+    return None
+
+
+def _extract_7z_archive(archive_path: str, extract_path: str):
+    """解压 7z 文件，优先使用 py7zr，失败后回退到 7z 命令行"""
+    try:
+        import py7zr
+
+        with py7zr.SevenZipFile(archive_path, mode="r") as archive:
+            archive.extractall(path=extract_path)
+        return
+    except ImportError:
+        pass
+
+    seven_zip = _find_7z_executable()
+    if not seven_zip:
+        raise RuntimeError(
+            "未找到可用的 7z 解压工具，请安装 7-Zip 或安装 py7zr 依赖后重试。"
+        )
+
+    subprocess.run(
+        [seven_zip, "x", archive_path, f"-o{extract_path}", "-y"],
+        check=True,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+    )
+
+
+def _normalize_faster_whisper_gpu_layout() -> bool:
+    """归一化 Faster-Whisper-XXL 解压目录结构，确保程序可被检测与执行"""
+    bin_path = Path(BIN_PATH)
+    expected_dir = bin_path / "Faster-Whisper-XXL"
+    expected_exe = expected_dir / "faster-whisper-xxl.exe"
+
+    if expected_exe.exists():
+        return True
+
+    root_exe = bin_path / "faster-whisper-xxl.exe"
+    if root_exe.exists():
+        expected_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(root_exe), str(expected_exe))
+        return expected_exe.exists()
+
+    matches = [
+        p
+        for p in bin_path.rglob("faster-whisper-xxl.exe")
+        if p.is_file() and p.parent != expected_dir
+    ]
+    if not matches:
+        return False
+
+    source_dir = min(matches, key=lambda p: len(p.parts)).parent
+    expected_dir.mkdir(parents=True, exist_ok=True)
+    for item in source_dir.iterdir():
+        target = expected_dir / item.name
+        if item.is_dir():
+            shutil.copytree(item, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(item, target)
+
+    return expected_exe.exists()
+
+
 # 添加新的解压线程类
 class UnzipThread(QThread):
     """7z解压线程"""
@@ -163,11 +237,11 @@ class UnzipThread(QThread):
 
     def run(self):
         try:
-            subprocess.run(
-                ["7z", "x", self.zip_file, f"-o{self.extract_path}", "-y"],
-                check=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
+            _extract_7z_archive(self.zip_file, self.extract_path)
+
+            if not _normalize_faster_whisper_gpu_layout():
+                raise RuntimeError("解压完成，但未找到 faster-whisper-xxl.exe")
+
             # 删除压缩包
             os.remove(self.zip_file)
             self.finished.emit()
@@ -459,7 +533,7 @@ class FasterWhisperDownloadDialog(MessageBoxBase):
             # 检查是否是 CPU 版本的直接下载
             if save_path.endswith(".exe"):
                 # 如果是exe文件,重命名为faster-whisper.exe
-                os.rename(save_path, os.path.join(BIN_PATH, "faster-whisper.exe"))
+                os.replace(save_path, os.path.join(BIN_PATH, "faster-whisper.exe"))
                 self._finish_program_installation()
             else:
                 # GPU 版本需要解压
