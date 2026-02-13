@@ -85,11 +85,21 @@ cd VideoCaptioner
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-#### 2. 安装系统依赖（macOS）
+#### 2. 安装系统依赖
 
-```bash
-brew install ffmpeg
-```
+- macOS
+
+  ```bash
+  brew install ffmpeg
+  ```
+
+- Windows
+
+  1. 访问 [Gyan.dev FFmpeg Builds](https://www.gyan.dev/ffmpeg/builds/)，下载release builds中的ffmpeg-release-essentials.zip
+
+  2. 解压后把FFmpeg bin 文件夹的路径加入系统环境变量
+
+  3. 重新打开 CMD 窗口，输入 `ffmpeg -version`，检查环境是否配置成功
 
 #### 3. 克隆并运行
 
