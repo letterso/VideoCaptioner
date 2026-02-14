@@ -187,7 +187,7 @@ API-key: `个人中心-API 令牌页面自行获取。`
 | B接口            | 仅支持中文、英文                                   | 在线     | 免费、速度较快                                                                                                    |
 | J接口            | 仅支持中文、英文                                   | 在线     | 免费、速度较快                                                                                                    |
 | WhisperCpp       | 中文、日语、韩语、英文等 99 种语言，外语效果较好   | 本地     | （实际使用不稳定）需要下载转录模型<br>中文建议medium以上模型<br>英文等使用较小模型即可达到不错效果。              |
-| fasterWhisper 👍 | 中文、英文等多99种语言，外语效果优秀，时间轴更准确 | 本地     | （🌟推荐🌟）需要下载程序和转录模型<br>支持CUDA,速度更快，转录准确。<br>超级准确的时间戳字幕。<br>仅支持 window |
+| fasterWhisper 👍 | 中文、英文等多99种语言，外语效果优秀，时间轴更准确 | 本地     | （🌟推荐🌟）需要下载程序和转录模型<br>支持CUDA,速度更快，转录准确。<br>超级准确的时间戳字幕。<br>仅支持 window ，手动下载地址为[whisper-standalone-win](https://github.com/Purfview/whisper-standalone-win)，解压到`resource/bin`目录下即可|
 
 ### 4. 本地 Whisper 语音识别模型
 
