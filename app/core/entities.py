@@ -741,6 +741,9 @@ class TranscribeTask:
     # 选中的音轨索引
     selected_audio_track_index: int = 0
 
+    # 本次转录是否命中 ASR 缓存
+    cache_hit: bool = False
+
     transcribe_config: Optional[TranscribeConfig] = None
 
 

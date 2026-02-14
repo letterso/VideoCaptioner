@@ -113,6 +113,7 @@ class TranscriptThread(QThread):
                 self.task.transcribe_config,
                 callback=self.progress_callback,
             )
+            self.task.cache_hit = bool(getattr(asr_data, "cache_hit", False))
 
             # 保存字幕文件（根据配置的输出格式）
             output_path = Path(self.task.output_path)
@@ -138,6 +139,9 @@ class TranscriptThread(QThread):
                 save_path = f"{base_path}.{fmt}"
                 asr_data.save(save_path)
                 logger.info("%s 字幕文件已保存到: %s", fmt.upper(), save_path)
+
+            if self.task.need_next_task:
+                self.task.output_path = f"{base_path}.{TranscribeOutputFormatEnum.SRT.value.lower()}"
 
             self.progress.emit(100, self.tr("转录完成"))
             self.finished.emit(self.task)

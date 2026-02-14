@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from PyQt5.QtCore import QStandardPaths, Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -51,6 +51,7 @@ from app.core.entities import (
     VideoInfo,
 )
 from app.core.task_factory import TaskFactory
+from app.core.utils.cache import get_asr_cache
 from app.core.utils.platform_utils import get_available_transcribe_models, open_folder
 from app.thread.transcript_thread import TranscriptThread
 from app.thread.video_info_thread import VideoInfoThread
@@ -143,10 +144,13 @@ class VideoInfoCard(CardWidget):
         self.button_layout = QVBoxLayout()
         self.open_folder_button = PushButton(self.tr("打开文件夹"), self)
         self.start_button = PrimaryPushButton(self.tr("开始转录"), self)
+        self.clear_cache_button = PushButton(self.tr("清除缓存"), self)
         self.button_layout.addWidget(self.open_folder_button)
         self.button_layout.addWidget(self.start_button)
+        self.button_layout.addWidget(self.clear_cache_button)
 
         self.start_button.setDisabled(True)
+        self.clear_cache_button.setDisabled(True)
 
         button_widget = QWidget()
         button_widget.setLayout(self.button_layout)
@@ -174,6 +178,7 @@ class VideoInfoCard(CardWidget):
             self.start_button.setEnabled(False)
         else:
             self.start_button.setEnabled(True)
+        self.update_clear_cache_button_state()
         self.update_thumbnail(video_info.thumbnail_path)
 
     def update_audio_tracks(self, video_info: VideoInfo) -> None:
@@ -258,13 +263,58 @@ class VideoInfoCard(CardWidget):
     def setup_signals(self) -> None:
         self.start_button.clicked.connect(self.on_start_button_clicked)
         self.open_folder_button.clicked.connect(self.on_open_folder_clicked)
+        self.clear_cache_button.clicked.connect(self.on_clear_cache_button_clicked)
 
     def on_start_button_clicked(self):
         """开始转录按钮点击事件"""
+        if self.task and self.task.cache_hit:
+            if self.transcription_interface:
+                self.transcription_interface.import_cached_subtitle(self.task)  # type: ignore
+            return
+
         self.progress_ring.setValue(0)
         self.progress_ring.show()
         self.start_button.setDisabled(True)
+        self.clear_cache_button.setDisabled(True)
         self.start_transcription()
+
+    def on_clear_cache_button_clicked(self):
+        """清除ASR缓存按钮点击事件"""
+        try:
+            get_asr_cache().clear()
+            if self.task:
+                self.task.cache_hit = False
+            self.start_button.setEnabled(self.video_info is not None)
+            self.start_button.setText(self.tr("开始转录"))
+            InfoBar.success(
+                self.tr("缓存已清除"),
+                self.tr("已清除转录缓存，可重新转录"),
+                duration=INFOBAR_DURATION_SUCCESS,
+                parent=self,
+            )
+        except Exception as e:
+            InfoBar.error(
+                self.tr("清除失败"),
+                self.tr(str(e)),
+                duration=INFOBAR_DURATION_ERROR,
+                parent=self,
+            )
+        finally:
+            self.update_clear_cache_button_state()
+
+    def update_clear_cache_button_state(self) -> None:
+        """根据缓存状态更新清除缓存按钮可用性"""
+        has_cache = False
+        try:
+            cache = get_asr_cache()
+            has_cache = cache.volume() > 0
+        except Exception:
+            has_cache = False
+
+        is_processing = bool(
+            self.transcription_interface and self.transcription_interface.is_processing  # type: ignore
+        )
+        self.clear_cache_button.setEnabled(has_cache and not is_processing)
 
     def on_open_folder_clicked(self):
         """打开文件夹按钮点击事件"""
@@ -290,10 +340,14 @@ class VideoInfoCard(CardWidget):
         self.start_button.setEnabled(False)
 
         if need_create_task:
-            self.task = TaskFactory.create_transcribe_task(self.video_info.file_path)
+            self.task = TaskFactory.create_transcribe_task(
+                self.video_info.file_path, need_next_task=True
+            )
 
         if not self.task:
             return
+
+        self.task.cache_hit = False
 
         # 将选中的音轨索引作为临时属性传递给 task
         self.task.selected_audio_track_index = self.selected_audio_track_index  # type: ignore
@@ -315,6 +369,7 @@ class VideoInfoCard(CardWidget):
         self.start_button.setEnabled(True)
         self.start_button.setText(self.tr("重新转录"))
         self.progress_ring.hide()
+        self.update_clear_cache_button_state()
         InfoBar.error(
             self.tr("转录失败"),
             self.tr(error),
@@ -325,8 +380,12 @@ class VideoInfoCard(CardWidget):
     def on_transcript_finished(self, task):
         """转录完成处理"""
         self.start_button.setEnabled(True)
-        self.start_button.setText(self.tr("转录完成"))
+        if task.cache_hit:
+            self.start_button.setText(self.tr("导入缓存"))
+        else:
+            self.start_button.setText(self.tr("转录完成"))
         self.progress_ring.hide()
+        self.update_clear_cache_button_state()
         self.finished.emit(task)
 
     def reset_ui(self):
@@ -335,6 +394,7 @@ class VideoInfoCard(CardWidget):
         self.start_button.setText(self.tr("开始转录"))
         self.progress_ring.setValue(0)
         self.progress_ring.hide()
+        self.update_clear_cache_button_state()
 
     def set_task(self, task):
         """设置任务并更新UI"""
@@ -470,16 +530,56 @@ class TranscriptionInterface(QWidget):
     def _on_transcript_finished(self, task: TranscribeTask):
         """转录完成处理"""
         self.is_processing = False
-        if task.need_next_task:
-            self.finished.emit(task.output_path, task.file_path)
+        self.video_info_card.update_clear_cache_button_state()
+        if task.cache_hit:
+            InfoBar.warning(
+                self.tr("检测到转录缓存"),
+                self.tr("当前结果来自缓存，可点击“导入缓存”进入字幕优化与翻译"),
+                duration=INFOBAR_DURATION_WARNING,
+                position=InfoBarPosition.BOTTOM,
+                parent=self.parent(),
+            )
+            return
+
+        self._emit_subtitle_flow(task, success_title=self.tr("转录完成"))
+
+    def _resolve_output_path(self, task: TranscribeTask) -> str:
+        output_path = task.output_path or ""
+        if output_path and not Path(output_path).exists():
+            fallback_path = str(Path(output_path).with_suffix(".srt"))
+            if Path(fallback_path).exists():
+                output_path = fallback_path
+        return output_path
+
+    def _emit_subtitle_flow(self, task: TranscribeTask, success_title: str) -> None:
+        output_path = self._resolve_output_path(task)
+
+        if task.need_next_task and output_path:
+            self.finished.emit(output_path, task.file_path)
 
             InfoBar.success(
-                self.tr("转录完成"),
+                success_title,
                 self.tr("开始字幕优化..."),
                 duration=INFOBAR_DURATION_SUCCESS,
                 position=InfoBarPosition.BOTTOM,
                 parent=self.parent(),
             )
+            return
+
+        if task.need_next_task:
+            InfoBar.error(
+                self.tr("转录输出缺失"),
+                self.tr("未找到可用的转录字幕文件，请重试或检查输出目录"),
+                duration=INFOBAR_DURATION_ERROR,
+                position=InfoBarPosition.BOTTOM,
+                parent=self.parent(),
+            )
+
+    def import_cached_subtitle(self, task: TranscribeTask) -> None:
+        """导入缓存字幕并进入字幕优化流程"""
+        self.is_processing = False
+        self._emit_subtitle_flow(task, success_title=self.tr("导入缓存成功"))
+
 
     def _on_file_select(self):
         """文件选择处理"""

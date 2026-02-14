@@ -456,6 +456,10 @@ class SubtitleInterface(QWidget):
                 parent=self,
             )
             return
+
+        if not need_create_task and self._try_use_cached_output():
+            return
+
         self.start_button.setEnabled(False)
         self.progress_bar.resume()
         self.progress_bar.reset()
@@ -486,6 +490,42 @@ class SubtitleInterface(QWidget):
             duration=INFOBAR_DURATION_INFO,
             parent=self,
         )
+
+    def _try_use_cached_output(self) -> bool:
+        """尝试直接使用已存在的优化/翻译结果"""
+        if not self.task or not self.task.need_next_task:
+            return False
+
+        output_path = self.task.output_path
+        video_path = self.task.video_path
+        if not output_path or not video_path:
+            return False
+
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            return False
+
+        try:
+            asr_data = ASRData.from_subtitle_file(str(output_file))
+            self.model._data = asr_data.to_json()
+            self.model.layoutChanged.emit()
+            self.status_label.setText(self.tr("已导入缓存字幕"))
+            self.progress_bar.setValue(100)
+            self.start_button.setEnabled(True)
+            self.cancel_button.hide()
+
+            InfoBar.info(
+                self.tr("检测到字幕缓存"),
+                self.tr("已导入优化/翻译结果，正在进入字幕视频合成..."),
+                duration=INFOBAR_DURATION_INFO,
+                position=InfoBarPosition.BOTTOM,
+                parent=self.parent(),
+            )
+
+            self.on_subtitle_optimization_finished(video_path, output_path)
+            return True
+        except Exception:
+            return False
 
     def process(self) -> None:
         """主处理函数"""

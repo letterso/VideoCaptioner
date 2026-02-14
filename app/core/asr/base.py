@@ -106,7 +106,9 @@ class BaseASR:
             if cached_result is not None:
                 logger.info("找到缓存，直接返回")
                 segments = self._make_segments(cached_result)
-                return ASRData(segments)
+                asr_data = ASRData(segments)
+                asr_data.cache_hit = True
+                return asr_data
 
         # Run ASR
         resp_data = self._run(callback, **kwargs)
@@ -115,7 +117,9 @@ class BaseASR:
         self._cache.set(cache_key, resp_data, expire=86400 * 2)
 
         segments = self._make_segments(resp_data)
-        return ASRData(segments)
+        asr_data = ASRData(segments)
+        asr_data.cache_hit = False
+        return asr_data
 
     def _get_key(self) -> str:
         """Get cache key for this ASR request.
